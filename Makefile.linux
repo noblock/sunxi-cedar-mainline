@@ -1,0 +1,316 @@
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+MMT=sunxi_cedar
+MMM=$(MMT)
+MMU=$(shell echo "$(MMM)" | tr "[a-z]" "[A-Z]")
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+EXTRA_CFLAGS += 
+MMH_HEADERS=
+PROGS = $(MMT).mod.c linux $(MMM)_modes.h
+##---------------------------------------------------------------------------------------------------------------
+$(MMT)-objs := cedar_ve.o
+##---------------------------------------------------------------------------------------------------------------
+## crw-r--r--  1 root root 10, 180 Aug 23  2000 /dev/isb0
+## minicom -s isb0
+##
+##
+## lircd -d /dev/isb0 		# daemon
+## irw				# client - test
+#-----------------------------------------------------------------------------------------------------------------------------------------
+KERNEL_SOURCE=$(KDIR)
+LINUXDIR=$(KDIR)
+KBUILD=$(KDIR)
+RUNNING_REL := $(shell uname -r)
+GETCONFIG := MAKEFILES=$(shell pwd)/.config
+HAVECONFIG := y
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+CONFIG_VIDEO_ENCODER_DECODER_SUNXI=y
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#ccflags-y += -Idrivers/media/dvb-core/ 
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#EXTRA_CFLAGS += -DDEF_KIEC61883_KSB -DDEF_LIRC
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+
+#include $(shell pwd)/Makefile
+
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+
+.SUFFIXES:
+
+ifndef LINUXDIR
+RUNNING_REL := $(shell uname -r)
+
+LINUXDIR := /lib/modules/$(RUNNING_REL)/build
+MODULEDIR := /lib/modules/$(RUNNING_REL)
+endif #LINUXDIR
+
+MACHINE := $(shell uname -m)
+
+# Modules for all architectures
+MODULE_LIST := $(MMT).o
+
+# Modules only for ix86 architectures
+#ifneq (,$(findstring 86,$(MACHINE)))
+#ARCHX86 := 1
+#MODULE_LIST += 
+#endif #(,$(findstring 86,$(MACHINE)))
+
+
+# Add ffb.o for sparc??
+OPT_MODULES ?= $(MODULE_LIST)
+
+CLEANFILES = *.o *.ko $(PROGS) .depend .*.flags .*.d .*.cmd Modules.symvers Module.symvers
+
+# VERSION is not defined from the initial invocation.  It is defined when
+# this Makefile is invoked from the kernel's root Makefile.
+
+ifndef VERSION
+ifdef RUNNING_REL
+# SuSE has the version.h and autoconf.h headers for the current kernel
+# in /boot as /boot/vmlinuz.version.h and /boot/vmlinuz.autoconf.h.
+# Check these first to see if they match the running kernel.
+
+BOOTVERSION_PREFIX = /boot/vmlinuz.
+
+V := $(shell if [ -f $(BOOTVERSION_PREFIX)version.h ]; then grep UTS_RELEASE $(BOOTVERSION_PREFIX)version.h | cut -d' ' -f3; fi)
+
+ifeq ($(V),"$(RUNNING_REL)")
+HEADERFROMBOOT := 1
+GETCONFIG := MAKEFILES=$(shell pwd)/.config
+HAVECONFIG := y
+endif #($(V),"$(RUNNING_REL)")
+
+# On Red Hat we need to check if there is a .config file in the kernel
+# source directory.  If there isn't, we need to check if there's a
+# matching file in the configs subdirectory.
+
+ifneq ($(HAVECONFIG),y)
+HAVECONFIG := $(shell if [ -e $(LINUXDIR)/.config ]; then echo y; fi)
+endif #HAVECONFIG
+
+ifneq ($(HAVECONFIG),y)
+REL_BASE := $(shell echo $(RUNNING_REL) | sed 's/-.*//')
+REL_TYPE := $(shell echo $(RUNNING_REL) | sed 's/[0-9.-]//g')
+ifeq ($(REL_TYPE),)
+RHCONFIG := configs/kernel-$(REL_BASE)-$(MACHINE).config
+else
+RHCONFIG := configs/kernel-$(REL_BASE)-$(MACHINE)-$(REL_TYPE).config
+endif
+HAVECONFIG := $(shell if [ -e $(LINUXDIR)/$(RHCONFIG) ]; then echo y; fi)
+ifneq ($(HAVECONFIG),y)
+RHCONFIG :=
+endif
+endif #HAVECONFIG
+
+ifneq ($(HAVECONFIG),y)
+$(error Cannot find a kernel config file)
+endif #HAVECONFIG
+endif #RUNNING_REL
+
+CLEANCONFIG := $(shell if cmp -s $(LINUXDIR)/.config .config; then echo y; fi)
+
+ifeq ($(CLEANCONFIG),y)
+CLEANFILES += $(LINUXDIR)/.config .config $(LINUXDIR)/tmp_include_depends
+endif
+
+# The Makefile renaming hack is required because the standard kernel build,
+# especially 2.5.52 and later, explicitly references the Makefile by the
+# name "Makefile".  For builds prior to 2.5.52, the name GNUmakefile could
+# have been used.
+
+all: modules
+
+modules: includes
+	@if test -f Makefile && cmp -s Makefile Makefile.linux; then : ; \
+	  else \
+		if [ -e Makefile ]; then \
+			(set -x; mv -f Makefile Makefile._xx_); fi; \
+		(set -x; ln -s Makefile.linux Makefile); fi
+	make -C $(LINUXDIR) $(GETCONFIG) SUBDIRS=`pwd` DRMSRCDIR=`pwd` modules
+	@if cmp -s Makefile Makefile.linux && [ -e Makefile._xx_ ]; then \
+		(set -x; rm -f Makefile; \
+		 mv -f Makefile._xx_ Makefile); fi
+
+install: includes
+	make -C $(LINUXDIR) $(GETCONFIG) SUBDIRS=`pwd` DRMSRCDIR=`pwd` INSTALL_MOD_DIR="$(INSTALL_MOD_DIR)" MOD_DESTDIR="../" modules_install
+
+
+ifeq ($(HEADERFROMBOOT),1)
+BOOTHEADERS = version.h autoconf.h
+BOOTCONFIG = .config
+
+CLEANFILES += $(BOOTHEADERS) $(BOOTCONFIG)
+
+includes:: $(BOOTHEADERS) $(BOOTCONFIG)
+
+version.h: $(BOOTVERSION_PREFIX)version.h
+	rm -f $@
+	ln -s $< $@
+
+autoconf.h: $(BOOTVERSION_PREFIX)autoconf.h
+	rm -f $@
+	ln -s $< $@
+
+.config: $(BOOTVERSION_PREFIX)config
+	rm -f $@
+	ln -s $< $@
+endif #HEADERFROMBOOT
+
+# This prepares an unused Red Hat kernel tree for the build.
+ifneq ($(RHCONFIG),)
+includes:: $(LINUXDIR)/.config $(LINUXDIR)/tmp_include_depends .config
+
+$(LINUXDIR)/.config: $(LINUXDIR)/$(RHCONFIG)
+	rm -f $@
+	ln -s $< $@
+
+.config: $(LINUXDIR)/$(RHCONFIG)
+	rm -f $@
+	ln -s $< $@
+
+$(LINUXDIR)/tmp_include_depends:
+	echo all: > $@
+endif #HEADERFROMBOOT
+
+# Make sure that the shared source files are linked into this directory.
+
+
+
+
+includes:: linux
+
+linux:
+	rm -f linux
+	ln -s . linux
+
+clean cleandir:
+	rm -f $(CLEANFILES)
+	rm -Rf .tmp_versions modules.order
+
+$(MODULE_LIST)::
+	make -f Makefile.linux OPT_MODULES=$@ modules
+
+KVER=$(shell cat $(LINUXDIR)/Makefile | sed -n 's/^VERSION[ ]*=[ ]*\([0-9]*\).*/\1/p')
+KPTT=$(shell cat $(LINUXDIR)/Makefile | sed -n 's/^PATCHLEVEL[ ]*=[ ]*\([0-9]*\).*/\1/p')
+KPTU=$(shell cat $(LINUXDIR)/Makefile | sed -n 's/^SUBLEVEL[ ]*=[ ]*\([0-9]*\).*/\1/p')
+KPTV=$(shell cat $(LINUXDIR)/Makefile | sed -n 's/^EXTRAVERSION[ ]*=[ ]*\([0-9a-fA-F.]*\).*/\1/p')
+KPTW=$(shell echo $$[ $(KVER)*16 + $(KPTT) ])
+KH26=$(shell if [ $(KPTW) -ge $$[0x26] ]; then echo 1;else echo 0;fi)
+KVVV=$(KVER).$(KPTT).$(KPTU)$(KPTV)
+MODULEDIR="/lib/modules/$(KVVV)/"
+
+# Build test utilities
+
+PRGCFLAGS = $(CFLAGS) -g -ansi -pedantic -DPOSIX_C_SOURCE=199309L -D_POSIX_SOURCE -D_XOPEN_SOURCE -D_BSD_SOURCE -D_SVID_SOURCE -I. -I../../..
+endif #VERSION
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+ifdef VERSION
+# Check for kernel versions that we don't support.
+
+BELOW24 := $(shell if [ $(VERSION) -lt 2 -o \( $(VERSION) -eq 2 -a $(PATCHLEVEL) -lt 4 \) ]; then echo y; fi)
+
+ifeq ($(BELOW24),y)
+$(error Only 2.4.x and later kernels are supported ($(VERSION).$(PATCHLEVEL).$(SUBLEVEL)))
+endif
+
+ifdef ARCHX86
+ifndef CONFIG_X86_CMPXCHG
+##$(error CONFIG_X86_CMPXCHG needs to be enabled in the kernel)
+endif
+endif
+
+# This needs to go before all other include paths.
+CC += -I$(DRMSRCDIR)
+
+# Check for Red Hat's 4-argument do_munmap().
+DOMUNMAP := $(shell grep do_munmap $(LINUXDIR)/include/linux/mm.h | grep -c acct)
+
+ifneq ($(DOMUNMAP),0)
+EXTRA_CFLAGS += -DDO_MUNMAP_4_ARGS
+endif
+
+# Check for 5-argument remap_page_range() in RH9 kernel, and 2.5.x kernels
+RPR := $(shell grep remap_page_range $(LINUXDIR)/include/linux/mm.h | grep -c vma)
+
+ifneq ($(RPR),0)
+EXTRA_CFLAGS += -DREMAP_PAGE_RANGE_5_ARGS
+endif
+
+# Check for 4-argument vmap() in some 2.5.x and 2.4.x kernels
+VMAP := $(shell grep -A1 'vmap.*count,$$' $(LINUXDIR)/include/linux/vmalloc.h | grep -c prot)
+
+ifneq ($(VMAP),0)
+EXTRA_CFLAGS += -DVMAP_4_ARGS
+endif
+
+# Check for PAGE_AGP definition
+PAGE_AGP := $(shell cat $(LINUXDIR)/include/asm/agp.h 2>/dev/null | grep -c PAGE_AGP)
+
+ifneq ($(PAGE_AGP),0)
+EXTRA_CFLAGS += -DHAVE_PAGE_AGP
+endif
+
+# Start with all modules turned...
+CONFIG_$(MMU) := m
+
+# Enable module builds for the modules requested/supported.
+
+ifneq (,$(findstring $(MMT),$(OPT_MODULES)))
+CONFIG_$(MMU) := m
+endif
+
+
+# Kernel version checks
+
+BELOW25 := $(shell if [ $(VERSION) -lt 2 -o \( $(VERSION) -eq 2 -a $(PATCHLEVEL) -lt 5 \) ]; then echo y; fi)
+
+# There were major build changes starting with 2.5.52
+ifneq ($(BELOW25),y)
+BELOW2552 := $(shell if [ $(VERSION) -lt 2 -o \( $(VERSION) -eq 2 -a $(PATCHLEVEL) -eq 5 -a $(SUBLEVEL) -lt 52 \) ]; then echo y; fi)
+else
+BELOW2552 := y
+endif
+
+ifeq ($(BELOW25),y)
+O_TARGET	:= $(MMT).o
+list-multi	:= $(MMT).o
+obj-m		:=
+obj-n		:=
+obj-		:=
+export-objs     := 
+endif
+
+
+obj-$(CONFIG_$(MMU))   += $(MMT).o
+
+
+ifeq ($(BELOW2552),y)
+include $(TOPDIR)/Rules.make
+endif
+
+ifeq ($(BELOW25),y)
+$(MMT).o: $($(MMT)-objs) $(lib)
+	$(LD) -r -o $@ $($(MMT)-objs) $(lib)
+endif
+
+endif #VERSION
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------------------------

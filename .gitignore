@@ -1,0 +1,11 @@
+*.o
+*.so
+*~
+*.P
+*.cmd
+*.ko
+.tmp*
+Makefile
+Module.symvers
+modules.order
+sunxi_cedar.mod.c
